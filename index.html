@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>B3 HeatMap</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0d0f14; --surface: #151820; --border: #1e2330;
+    --text: #e8ecf4; --muted: #5a6278; --accent: #4f8ef7;
+    --up-strong: #00c97a; --up-mid: #00895a; --up-low: #005c3c;
+    --dn-low: #6b1c1c; --dn-mid: #a01f1f; --dn-strong: #d62828;
+    --neutral: #2a2e3d;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100dvh; display: flex; flex-direction: column; }
+  header { padding: 16px 16px 10px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 10; }
+  .logo { display: flex; align-items: center; gap: 8px; }
+  .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .logo-text { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+  .logo-text span { color: var(--accent); }
+  .last-update { font-size: 11px; color: var(--muted); }
+  .legend { display: flex; align-items: center; gap: 4px; padding: 8px 16px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .legend::-webkit-scrollbar { display: none; }
+  .legend-item { display: flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 10px; color: var(--muted); }
+  .legend-box { width: 12px; height: 12px; border-radius: 2px; }
+  .legend-sep { flex: 1; min-width: 12px; }
+  .filters { display: flex; gap: 6px; padding: 10px 16px; overflow-x: auto; scrollbar-width: none; flex-shrink: 0; }
+  .filters::-webkit-scrollbar { display: none; }
+  .filter-btn { padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: all 0.15s; -webkit-tap-highlight-color: transparent; }
+  .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .map-container { flex: 1; padding: 8px 12px 16px; overflow-y: auto; }
+  .sector-block { margin-bottom: 14px; }
+  .sector-label { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 5px; padding-left: 2px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 4px; }
+  .tile { border-radius: 6px; padding: 7px 6px; cursor: pointer; transition: transform 0.1s; min-height: 56px; display: flex; flex-direction: column; justify-content: space-between; -webkit-tap-highlight-color: transparent; }
+  .tile:active { transform: scale(0.94); }
+  .tile-ticker { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.95); }
+  .tile-pct { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.85); }
+  .tile-loading { background: var(--neutral); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.45} }
+  .status-bar { padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); flex-shrink: 0; }
+  .status-counts { display: flex; gap: 12px; font-size: 11px; }
+  .count-up { color: var(--up-strong); } .count-dn { color: var(--dn-strong); } .count-nt { color: var(--muted); }
+  .refresh-btn { background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 11px; padding: 4px 10px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+  .refresh-btn.spinning svg { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: flex-end; z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal { background: var(--surface); border-radius: 18px 18px 0 0; padding: 20px; width: 100%; border-top: 1px solid var(--border); transform: translateY(40px); transition: transform 0.25s cubic-bezier(.32,1,.5,1); }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 16px; }
+  .modal-ticker { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+  .modal-name { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .modal-pct { font-size: 28px; font-weight: 700; margin: 12px 0 4px; }
+  .modal-price { font-size: 14px; color: var(--muted); }
+  .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+  .modal-stat { background: var(--bg); border-radius: 10px; padding: 10px 12px; }
+  .modal-stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .modal-stat-value { font-size: 14px; font-weight: 600; }
+  .modal-close { width: 100%; margin-top: 16px; padding: 13px; background: var(--border); border: none; border-radius: 12px; color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    <div class="logo-text">B3 <span>HeatMap</span></div>
+  </div>
+  <div class="last-update" id="lastUpdate">Carregando...</div>
+</header>
+<div class="legend">
+  <div class="legend-item"><div class="legend-box" style="background:var(--dn-strong)"></div>&lt;-2%</div>
+  <div class="legend-item"><div class="legend-box" style="background:var(--dn-mid)"></div>-2~-1%</div>
+  <div class="legend-item"><div class="legend-box" style="background:var(--dn-low)"></div>-1~0%</div>
+  <div class="legend-sep"></div>
+  <div class="legend-item"><div class="legend-box" style="background:var(--neutral)"></div>0%</div>
+  <div class="legend-sep"></div>
+  <div class="legend-item"><div class="legend-box" style="background:var(--up-low)"></div>0~1%</div>
+  <div class="legend-item"><div class="legend-box" style="background:var(--up-mid)"></div>1~2%</div>
+  <div class="legend-item"><div class="legend-box" style="background:var(--up-strong)"></div>&gt;2%</div>
+</div>
+<div class="filters">
+  <button class="filter-btn active" onclick="filterSector('all',this)">Todos</button>
+  <button class="filter-btn" onclick="filterSector('Financeiro',this)">Financeiro</button>
+  <button class="filter-btn" onclick="filterSector('Energia',this)">Energia</button>
+  <button class="filter-btn" onclick="filterSector('Mineração',this)">Mineração</button>
+  <button class="filter-btn" onclick="filterSector('Varejo',this)">Varejo</button>
+  <button class="filter-btn" onclick="filterSector('Utilidades',this)">Utilidades</button>
+  <button class="filter-btn" onclick="filterSector('Telecom',this)">Telecom</button>
+  <button class="filter-btn" onclick="filterSector('Saúde',this)">Saúde</button>
+</div>
+<div class="map-container" id="mapContainer"></div>
+<div class="status-bar">
+  <div class="status-counts">
+    <span class="count-up" id="countUp">▲ 0</span>
+    <span class="count-dn" id="countDn">▼ 0</span>
+    <span class="count-nt" id="countNt">— 0</span>
+  </div>
+  <button class="refresh-btn" id="refreshBtn" onclick="loadData()">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/>
+    </svg>
+    Atualizar
+  </button>
+</div>
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-ticker" id="mTicker">—</div>
+    <div class="modal-name" id="mName">—</div>
+    <div class="modal-pct" id="mPct">—</div>
+    <div class="modal-price" id="mPrice">—</div>
+    <div class="modal-grid">
+      <div class="modal-stat"><div class="modal-stat-label">Abertura</div><div class="modal-stat-value" id="mOpen">—</div></div>
+      <div class="modal-stat"><div class="modal-stat-label">Fechamento ant.</div><div class="modal-stat-value" id="mPrev">—</div></div>
+      <div class="modal-stat"><div class="modal-stat-label">Máxima</div><div class="modal-stat-value" id="mHigh">—</div></div>
+      <div class="modal-stat"><div class="modal-stat-label">Mínima</div><div class="modal-stat-value" id="mLow">—</div></div>
+    </div>
+    <button class="modal-close" onclick="closeModal()">Fechar</button>
+  </div>
+</div>
+<script>
+const SECTORS = {
+  'Financeiro':  ['ITUB4','BBDC4','BBAS3','SANB11','BRSR6','BPAC11','BMGB4','IRBR3'],
+  'Energia':     ['PETR4','PETR3','PRIO3','VBBR3','RAIZ4','RECV3','UGPA3','CSAN3'],
+  'Mineração':   ['VALE3','CSNA3','GGBR4','USIM5','CMIN3','CBAV3'],
+  'Varejo':      ['MGLU3','VIIA3','AMER3','LREN3','ALPA4','SOMA3','AREZO3'],
+  'Utilidades':  ['ELET3','ELET6','CMIG4','CPFE3','ENGI11','TAEE11','CPLE6','SBSP3'],
+  'Telecom':     ['VIVT3','TIMS3','OIBR3'],
+  'Saúde':       ['RDOR3','HAPV3','GNDI3','FLRY3','DASA3','QUAL3'],
+};
+
+let allData = {};
+let currentFilter = 'all';
+
+function getColor(pct) {
+  if (pct == null) return 'var(--neutral)';
+  if (pct > 2)  return 'var(--up-strong)';
+  if (pct > 1)  return 'var(--up-mid)';
+  if (pct > 0)  return 'var(--up-low)';
+  if (pct < -2) return 'var(--dn-strong)';
+  if (pct < -1) return 'var(--dn-mid)';
+  if (pct < 0)  return 'var(--dn-low)';
+  return 'var(--neutral)';
+}
+
+function renderMap() {
+  const container = document.getElementById('mapContainer');
+  container.innerHTML = '';
+  let up = 0, dn = 0, nt = 0;
+  const sectors = currentFilter === 'all' ? Object.keys(SECTORS) : [currentFilter];
+  for (const sector of sectors) {
+    const block = document.createElement('div');
+    block.className = 'sector-block';
+    block.innerHTML = `<div class="sector-label">${sector}</div><div class="tiles"></div>`;
+    container.appendChild(block);
+    const grid = block.querySelector('.tiles');
+    for (const ticker of SECTORS[sector]) {
+      const d = allData[ticker];
+      const tile = document.createElement('div');
+      tile.className = 'tile' + (d !== undefined && d !== null ? '' : ' tile-loading');
+      if (d) {
+        tile.style.background = getColor(d.pct);
+        tile.innerHTML = `<div class="tile-ticker">${ticker}</div><div class="tile-pct">${d.pct != null ? (d.pct > 0 ? '+' : '') + d.pct.toFixed(2) + '%' : '—'}</div>`;
+        tile.onclick = () => openModal(ticker, d, sector);
+        if (d.pct > 0.05) up++; else if (d.pct < -0.05) dn++; else nt++;
+      } else {
+        tile.innerHTML = `<div class="tile-ticker">${ticker}</div><div class="tile-pct">...</div>`;
+      }
+      grid.appendChild(tile);
+    }
+  }
+  document.getElementById('countUp').textContent = `▲ ${up}`;
+  document.getElementById('countDn').textContent = `▼ ${dn}`;
+  document.getElementById('countNt').textContent = `— ${nt}`;
+}
+
+async function loadData() {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+  document.getElementById('lastUpdate').textContent = 'Atualizando...';
+  for (const t of Object.values(SECTORS).flat()) allData[t] = null;
+  renderMap();
+
+  const all = Object.values(SECTORS).flat();
+  // Batch in groups of 10
+  for (let i = 0; i < all.length; i += 10) {
+    const chunk = all.slice(i, i + 10);
+    try {
+      const res = await fetch(`/api/quote?tickers=${chunk.join(',')}`);
+      const data = await res.json();
+      Object.assign(allData, data);
+      renderMap();
+    } catch(e) {
+      console.error(e);
+    }
+  }
+
+  btn.classList.remove('spinning');
+  const now = new Date();
+  document.getElementById('lastUpdate').textContent =
+    now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function filterSector(s, btn) {
+  currentFilter = s;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderMap();
+}
+
+function openModal(ticker, d, sector) {
+  document.getElementById('mTicker').textContent = ticker;
+  document.getElementById('mName').textContent = sector;
+  const pctEl = document.getElementById('mPct');
+  pctEl.textContent = d.pct != null ? (d.pct > 0 ? '+' : '') + d.pct.toFixed(2) + '%' : '—';
+  pctEl.style.color = d.pct > 0 ? 'var(--up-strong)' : d.pct < 0 ? 'var(--dn-strong)' : 'var(--muted)';
+  document.getElementById('mPrice').textContent = d.price ? `R$ ${d.price.toFixed(2)}` : '—';
+  document.getElementById('mOpen').textContent  = d.open  ? `R$ ${d.open.toFixed(2)}`  : '—';
+  document.getElementById('mPrev').textContent  = d.prev  ? `R$ ${d.prev.toFixed(2)}`  : '—';
+  document.getElementById('mHigh').textContent  = d.high  ? `R$ ${d.high.toFixed(2)}`  : '—';
+  document.getElementById('mLow').textContent   = d.low   ? `R$ ${d.low.toFixed(2)}`   : '—';
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal(e) {
+  if (!e || e.target === document.getElementById('modalOverlay')) {
+    document.getElementById('modalOverlay').classList.remove('open');
+  }
+}
+
+loadData();
+</script>
+</body>
+</html>
